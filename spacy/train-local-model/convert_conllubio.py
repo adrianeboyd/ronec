@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import ntpath
+import random
 
 
 def create_file_json_collubio(sentences, output_path, output_filename):
@@ -58,35 +59,38 @@ def extract_sentences_from_file(ronec_path):
 
         old_entity = None
 
-        tokens_list = None
+        tokens_list = []
 
         for line in file:
             # if the current line denotes a beginning of a new sentence, create a new list that will contain the tokens
             if line[0] == "#":
-                tokens_list = []
                 tokens_list.append(line)
-                tokens_list.append(file.readline())
             # if the current line denotes the end of the sentences, add the list of tokens to the sentence list
             elif line == "\n":
+                final_misc_parts = tokens_list[-1][-1].split("|")
+                tokens_list[-1][-1] = "|".join([x for x in final_misc_parts if x != "SpaceAfter=No"])
+                tokens_list[-1][-1] = tokens_list[-1][-1]
                 sentences.append(tokens_list)
+                tokens_list = []
             # else process the tokens and add them to the token list
             else:
                 tokens = line.split()
 
-                # remove the second last token to obtain the correct number of tokens for Spacy
-                del tokens[-2]
-
                 # convert the entities to BIO format
-                entity = tokens[-1]
+                entity = tokens.pop()
 
                 if entity == "*":
-                    tokens[-1] = "O"
-
-                elif entity.__contains__(":"):
+                    iob_tag = "O"
+                elif ":" in entity:
                     old_entity = entity.split(":")[-1]
-                    tokens[-1] = "I " + old_entity
+                    iob_tag = "B-" + old_entity
                 else:
-                    tokens[-1] = "I " + old_entity
+                    iob_tag = "I-" + old_entity
+
+                if tokens[-1] == "_":
+                    tokens[-1] = iob_tag
+                else:
+                    tokens[-1] += ("|" + iob_tag)
 
                 tokens_list.append(tokens)
 
@@ -111,14 +115,15 @@ if __name__ == "__main__":
 
     # extract the sentences from RONEC
     sentences = extract_sentences_from_file(ronec_path)
+    random.shuffle(sentences)
 
     # create the train, dev and eval sentences
-    num_sentences = 5127  # source: https://github.com/dumitrescustefan/ronec
+    num_sentences = len(sentences)
     num_train_sentences = int((1 - dev_ratio) * num_sentences)
     num_dev_sentences = num_sentences - num_train_sentences
 
-    train_sentences = sentences[0: num_train_sentences]
-    dev_sentences = sentences[num_train_sentences: num_train_sentences + num_dev_sentences]
+    train_sentences = sentences[:num_train_sentences]
+    dev_sentences = sentences[num_train_sentences:]
 
     # create the train, dev and eval json files necessary for Spacy
     print("Converting CoNLL-U Plus to CoNLL-U BIO...")
@@ -126,9 +131,5 @@ if __name__ == "__main__":
     print("Validation ratio is {}, resulting in {} train sentences and {} dev sentences...\n".
           format(dev_ratio, num_train_sentences, num_dev_sentences))
 
-    create_file_json_collubio(train_sentences, output_path, "train_ronec.conllubio")
-
-    create_file_json_collubio(dev_sentences, output_path, "dev_ronec.conllubio")
-
-
-
+    create_file_json_collubio(train_sentences, output_path, "train_ronec.conllu")
+    create_file_json_collubio(dev_sentences, output_path, "dev_ronec.conllu")
